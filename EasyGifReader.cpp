@@ -295,19 +295,19 @@ void EasyGifReader::Frame::nextFrame() {
             disposal = DISPOSE_BACKGROUND;
     }
     for (int y = frameBounds.y0; y < frameBounds.y1; ++y) {
-        uint32_t *dst = row(y)+frameBounds.x0;
+        GifByteType *dst = reinterpret_cast<GifByteType *>(row(y)+frameBounds.x0);
         const GifByteType *src = raster+(imageDesc.Width*(y-imageDesc.Top)+(frameBounds.x0-imageDesc.Left));
         for (int x = frameBounds.x0; x < frameBounds.x1; ++x) {
             int i = int(*src++);
             i *= (unsigned) i < (unsigned) colorMap->ColorCount;
             GifColorType c = colorMap->Colors[i];
-            if (i != gcb.TransparentColor)
-#ifdef __BIG_ENDIAN__
-                *dst = (uint32_t) 0xff|(uint32_t) c.Red<<24|(uint32_t) c.Green<<16|(uint32_t) c.Blue<<8;
-#else
-                *dst = (uint32_t) 0xff000000|(uint32_t) c.Red|(uint32_t) c.Green<<8|(uint32_t) c.Blue<<16;
-#endif
-            ++dst;
+            if (i != gcb.TransparentColor) {
+                dst[0] = c.Red;
+                dst[1] = c.Green;
+                dst[2] = c.Blue;
+                dst[3] = GifByteType(0xff);
+            }
+            dst += 4;
         }
     }
 }
