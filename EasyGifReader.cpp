@@ -40,6 +40,7 @@ struct EasyGifReader::Internal {
     static int memoryRead(GifFileType *gif, GifByteType *outData, int size);
     static int customRead(GifFileType *gif, GifByteType *outData, int size);
     static bool readLoopExtension(int &loopCount, const ExtensionBlock *extensionBlocks, int extensionBlockCount);
+    static GraphicsControlBlock readGCBExtension(const ExtensionBlock *extensionBlocks, int extensionBlockCount);
 };
 
 struct EasyGifReader::FrameBounds {
@@ -261,12 +262,7 @@ void EasyGifReader::Frame::nextFrame() {
         else
             throw Error::INVALID_OPERATION;
     }
-    GraphicsControlBlock gcb;
-    gcb.DisposalMode = DISPOSAL_UNSPECIFIED;
-    gcb.UserInputFlag = 0;
-    gcb.DelayTime = 0;
-    gcb.TransparentColor = NO_TRANSPARENT_COLOR;
-    DGifSavedExtensionToGCB(parentData->gif, imageIndex, &gcb);
+    GraphicsControlBlock gcb = Internal::readGCBExtension(parentData->gif->SavedImages[imageIndex].ExtensionBlocks, parentData->gif->SavedImages[imageIndex].ExtensionBlockCount);
     delay = gcb.DelayTime;
     const ColorMapObject *colorMap = parentData->gif->SavedImages[imageIndex].ImageDesc.ColorMap;
     if (!colorMap)
@@ -476,6 +472,19 @@ bool EasyGifReader::Internal::readLoopExtension(int &loopCount, const ExtensionB
     return false;
 }
 
+GraphicsControlBlock EasyGifReader::Internal::readGCBExtension(const ExtensionBlock *extensionBlocks, int extensionBlockCount) {
+    GraphicsControlBlock gcb;
+    gcb.DisposalMode = DISPOSAL_UNSPECIFIED;
+    gcb.UserInputFlag = 0;
+    gcb.DelayTime = 0;
+    gcb.TransparentColor = NO_TRANSPARENT_COLOR;
+    for (const ExtensionBlock *extensionBlock = extensionBlocks+extensionBlockCount; extensionBlock-- != extensionBlocks;) {
+        if (extensionBlock->Function == GRAPHICS_EXT_FUNC_CODE && DGifExtensionToGCB(extensionBlock->ByteCount, extensionBlock->Bytes, &gcb) == GIF_OK)
+            break;
+    }
+    return gcb;
+}
+
 EasyGifReader::EasyGifReader() : data(nullptr) { }
 
 EasyGifReader::EasyGifReader(Internal *data) : data(data) {
@@ -491,9 +500,7 @@ EasyGifReader::EasyGifReader(Internal *data) : data(data) {
     size_t frameArea = (size_t) data->gif->SWidth*(size_t) data->gif->SHeight;
     size_t prevFrameBufferSize = 0;
     for (int i = 0; i < data->gif->ImageCount-1; ++i) {
-        GraphicsControlBlock gcb;
-        gcb.DisposalMode = DISPOSAL_UNSPECIFIED;
-        DGifSavedExtensionToGCB(data->gif, i, &gcb);
+        GraphicsControlBlock gcb = Internal::readGCBExtension(data->gif->SavedImages[i].ExtensionBlocks, data->gif->SavedImages[i].ExtensionBlockCount);
         if (gcb.DisposalMode == DISPOSE_PREVIOUS) {
             size_t area = (size_t) data->gif->SavedImages[i].ImageDesc.Width*(size_t) data->gif->SavedImages[i].ImageDesc.Height;
             if (area > prevFrameBufferSize) {
