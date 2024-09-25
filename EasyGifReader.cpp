@@ -16,7 +16,8 @@
 #include <gif_lib.h>
 
 using std::size_t;
-using std::uint32_t;
+
+static const size_t pxSize = 4;
 
 struct EasyGifReader::Internal {
     GifFileType *gif;
@@ -35,8 +36,8 @@ struct EasyGifReader::Internal {
 
     static Error translateErrorCode(int error);
     static FrameBounds frameBounds(GifFileType *gif, int imageIndex);
-    static void clearRows(uint32_t *dst, int width, int height, size_t dstStride);
-    static void copyRows(uint32_t *dst, const uint32_t *src, int width, int height, size_t dstStride, size_t srcStride);
+    static void clearRows(PixelComponent *dst, int width, int height, size_t dstStride);
+    static void copyRows(PixelComponent *dst, const PixelComponent *src, int width, int height, size_t dstStride, size_t srcStride);
     static int memoryRead(GifFileType *gif, GifByteType *outData, int size);
     static int customRead(GifFileType *gif, GifByteType *outData, int size);
     static bool readLoopExtension(int &loopCount, const ExtensionBlock *extensionBlocks, int extensionBlockCount);
@@ -112,16 +113,16 @@ EasyGifReader::FrameBounds EasyGifReader::Internal::frameBounds(GifFileType *gif
     };
 }
 
-void EasyGifReader::Internal::clearRows(uint32_t *dst, int width, int height, size_t dstStride) {
+void EasyGifReader::Internal::clearRows(PixelComponent *dst, int width, int height, size_t dstStride) {
     for (int y = 0; y < height; ++y) {
-        memset(dst, 0, sizeof(uint32_t)*width);
+        memset(dst, 0, pxSize*width);
         dst += dstStride;
     }
 }
 
-void EasyGifReader::Internal::copyRows(uint32_t *dst, const uint32_t *src, int width, int height, size_t dstStride, size_t srcStride) {
+void EasyGifReader::Internal::copyRows(PixelComponent *dst, const PixelComponent *src, int width, int height, size_t dstStride, size_t srcStride) {
     for (int y = 0; y < height; ++y) {
-        memcpy(dst, src, sizeof(uint32_t)*width);
+        memcpy(dst, src, pxSize*width);
         dst += dstStride;
         src += srcStride;
     }
@@ -135,12 +136,12 @@ double EasyGifReader::FrameDuration::seconds() const {
     return .01*centiseconds;
 }
 
-EasyGifReader::FrameDuration & EasyGifReader::FrameDuration::operator+=(FrameDuration other) {
+EasyGifReader::FrameDuration &EasyGifReader::FrameDuration::operator+=(FrameDuration other) {
     centiseconds += other.centiseconds;
     return *this;
 }
 
-EasyGifReader::FrameDuration & EasyGifReader::FrameDuration::operator-=(FrameDuration other) {
+EasyGifReader::FrameDuration &EasyGifReader::FrameDuration::operator-=(FrameDuration other) {
     centiseconds -= other.centiseconds;
     return *this;
 }
@@ -181,8 +182,8 @@ EasyGifReader::Frame::Frame() : parentData(nullptr), index(-1), w(0), h(0), pixe
 
 EasyGifReader::Frame::Frame(const Frame &orig) : parentData(orig.parentData), index(orig.index), w(orig.w), h(orig.h), pixelBuffer(nullptr), disposal(orig.disposal), delay(orig.delay) {
     if (orig.pixelBuffer) {
-        pixelBuffer = new uint32_t[parentData->pixelBufferSize];
-        memcpy(pixelBuffer, orig.pixelBuffer, sizeof(uint32_t)*parentData->pixelBufferSize);
+        pixelBuffer = new PixelComponent[parentData->pixelBufferSize];
+        memcpy(pixelBuffer, orig.pixelBuffer, parentData->pixelBufferSize);
     }
 }
 
@@ -194,7 +195,7 @@ EasyGifReader::Frame::~Frame() {
     delete[] pixelBuffer;
 }
 
-EasyGifReader::Frame & EasyGifReader::Frame::operator=(const Frame &orig) {
+EasyGifReader::Frame &EasyGifReader::Frame::operator=(const Frame &orig) {
     if (this != &orig) {
         bool keepPixelBuffer = pixelBuffer && orig.pixelBuffer && parentData->pixelBufferSize == orig.parentData->pixelBufferSize;
         if (!keepPixelBuffer) {
@@ -208,14 +209,14 @@ EasyGifReader::Frame & EasyGifReader::Frame::operator=(const Frame &orig) {
         delay = orig.delay;
         if (orig.pixelBuffer) {
             if (!keepPixelBuffer)
-                pixelBuffer = new uint32_t[parentData->pixelBufferSize];
-            memcpy(pixelBuffer, orig.pixelBuffer, sizeof(uint32_t)*parentData->pixelBufferSize);
+                pixelBuffer = new PixelComponent[parentData->pixelBufferSize];
+            memcpy(pixelBuffer, orig.pixelBuffer, parentData->pixelBufferSize);
         }
     }
     return *this;
 }
 
-EasyGifReader::Frame & EasyGifReader::Frame::operator=(Frame &&orig) {
+EasyGifReader::Frame &EasyGifReader::Frame::operator=(Frame &&orig) {
     if (this != &orig) {
         delete[] pixelBuffer;
         parentData = orig.parentData;
@@ -229,7 +230,7 @@ EasyGifReader::Frame & EasyGifReader::Frame::operator=(Frame &&orig) {
     return *this;
 }
 
-const uint32_t * EasyGifReader::Frame::pixels() const {
+const EasyGifReader::PixelComponent *EasyGifReader::Frame::pixels() const {
     return pixelBuffer;
 }
 
@@ -258,7 +259,7 @@ void EasyGifReader::Frame::nextFrame() {
     int imageIndex = index%parentData->gif->ImageCount;
     if (!pixelBuffer) {
         if (!imageIndex)
-            pixelBuffer = new uint32_t[parentData->pixelBufferSize];
+            pixelBuffer = new PixelComponent[parentData->pixelBufferSize];
         else
             throw Error::INVALID_OPERATION;
     }
@@ -274,24 +275,24 @@ void EasyGifReader::Frame::nextFrame() {
     FrameBounds frameBounds = Internal::frameBounds(parentData->gif, imageIndex);
     if (gcb.TransparentColor >= 0 || frameBounds.x0 > 0 || frameBounds.x1 < w || frameBounds.y0 > 0 || frameBounds.y1 < h || gcb.DisposalMode == DISPOSE_PREVIOUS) {
         if (!imageIndex)
-            memset(pixelBuffer, 0, sizeof(uint32_t)*w*h);
+            memset(pixelBuffer, 0, pxSize*w*h);
         else if (disposal == DISPOSE_BACKGROUND || disposal == DISPOSE_PREVIOUS) {
             FrameBounds prevBounds = Internal::frameBounds(parentData->gif, imageIndex-1);
             if (disposal == DISPOSE_PREVIOUS)
-                Internal::copyRows(corner(prevBounds), pixelBuffer+w*h, prevBounds.width(), prevBounds.height(), w, prevBounds.width());
+                Internal::copyRows(corner(prevBounds), pixelBuffer+pxSize*w*h, prevBounds.width(), prevBounds.height(), pxSize*w, pxSize*prevBounds.width());
             else
-                Internal::clearRows(corner(prevBounds), prevBounds.width(), prevBounds.height(), w);
+                Internal::clearRows(corner(prevBounds), prevBounds.width(), prevBounds.height(), pxSize*w);
         }
     }
     disposal = gcb.DisposalMode;
     if (disposal == DISPOSE_PREVIOUS) {
         if (imageIndex && imageIndex < parentData->gif->ImageCount-1)
-            Internal::copyRows(pixelBuffer+w*h, corner(frameBounds), frameBounds.width(), frameBounds.height(), frameBounds.width(), w);
+            Internal::copyRows(pixelBuffer+pxSize*w*h, corner(frameBounds), frameBounds.width(), frameBounds.height(), pxSize*frameBounds.width(), pxSize*w);
         else
             disposal = DISPOSE_BACKGROUND;
     }
     for (int y = frameBounds.y0; y < frameBounds.y1; ++y) {
-        GifByteType *dst = reinterpret_cast<GifByteType *>(row(y)+frameBounds.x0);
+        PixelComponent *dst = row(y)+pxSize*frameBounds.x0;
         const GifByteType *src = raster+(imageDesc.Width*(y-imageDesc.Top)+(frameBounds.x0-imageDesc.Left));
         for (int x = frameBounds.x0; x < frameBounds.x1; ++x) {
             int i = int(*src++);
@@ -301,26 +302,26 @@ void EasyGifReader::Frame::nextFrame() {
                 dst[0] = c.Red;
                 dst[1] = c.Green;
                 dst[2] = c.Blue;
-                dst[3] = GifByteType(0xff);
+                dst[3] = PixelComponent(0xff);
             }
-            dst += 4;
+            dst += pxSize;
         }
     }
 }
 
-uint32_t * EasyGifReader::Frame::row(int y) {
+EasyGifReader::PixelComponent *EasyGifReader::Frame::row(int y) {
 #ifdef EASY_GIF_DECODER_BOTTOM_TO_TOP_ROWS
-    return pixelBuffer+w*(h-y-1);
+    return pixelBuffer+pxSize*w*(h-y-1);
 #else
-    return pixelBuffer+w*y;
+    return pixelBuffer+pxSize*w*y;
 #endif
 }
 
-uint32_t * EasyGifReader::Frame::corner(const FrameBounds &bounds) {
+EasyGifReader::PixelComponent *EasyGifReader::Frame::corner(const FrameBounds &bounds) {
 #ifdef EASY_GIF_DECODER_BOTTOM_TO_TOP_ROWS
-    return pixelBuffer+(w*(h-bounds.y1)+bounds.x0);
+    return pixelBuffer+pxSize*(w*(h-bounds.y1)+bounds.x0);
 #else
-    return pixelBuffer+(w*bounds.y0+bounds.x0);
+    return pixelBuffer+pxSize*(w*bounds.y0+bounds.x0);
 #endif
 }
 
@@ -347,7 +348,7 @@ EasyGifReader::FrameIterator::FrameIterator(const EasyGifReader *decoder, Positi
     }
 }
 
-EasyGifReader::FrameIterator & EasyGifReader::FrameIterator::operator++() {
+EasyGifReader::FrameIterator &EasyGifReader::FrameIterator::operator++() {
     nextFrame();
     return *this;
 }
@@ -364,11 +365,11 @@ bool EasyGifReader::FrameIterator::operator!=(const FrameIterator &other) const 
     return parentData != other.parentData || index != other.index;
 }
 
-const EasyGifReader::Frame & EasyGifReader::FrameIterator::operator*() const {
+const EasyGifReader::Frame &EasyGifReader::FrameIterator::operator*() const {
     return *this;
 }
 
-const EasyGifReader::Frame * EasyGifReader::FrameIterator::operator->() const {
+const EasyGifReader::Frame *EasyGifReader::FrameIterator::operator->() const {
     return this;
 }
 
@@ -402,7 +403,7 @@ int EasyGifReader::Internal::memoryRead(GifFileType *gif, GifByteType *outData, 
     size_t realSize = data->remainingSize < (size_t) size ? data->remainingSize : (size_t) size;
     memcpy(outData, data->dataPtr, realSize);
     data->remainingSize -= realSize;
-    data->dataPtr = reinterpret_cast<const unsigned char *>(data->dataPtr)+realSize;
+    data->dataPtr = reinterpret_cast<const GifByteType *>(data->dataPtr)+realSize;
     return (int) realSize;
 }
 
@@ -498,19 +499,19 @@ EasyGifReader::EasyGifReader(Internal *data) : data(data) {
     if (!Internal::readLoopExtension(data->loopCount, data->gif->ExtensionBlocks, data->gif->ExtensionBlockCount) && data->gif->ImageCount > 0)
         Internal::readLoopExtension(data->loopCount, data->gif->SavedImages[0].ExtensionBlocks, data->gif->SavedImages[0].ExtensionBlockCount);
     size_t frameArea = (size_t) data->gif->SWidth*(size_t) data->gif->SHeight;
-    size_t prevFrameBufferSize = 0;
+    size_t prevFrameArea = 0;
     for (int i = 0; i < data->gif->ImageCount-1; ++i) {
         GraphicsControlBlock gcb = Internal::readGCBExtension(data->gif->SavedImages[i].ExtensionBlocks, data->gif->SavedImages[i].ExtensionBlockCount);
         if (gcb.DisposalMode == DISPOSE_PREVIOUS) {
             size_t area = (size_t) data->gif->SavedImages[i].ImageDesc.Width*(size_t) data->gif->SavedImages[i].ImageDesc.Height;
-            if (area > prevFrameBufferSize) {
-                prevFrameBufferSize = area;
+            if (area > prevFrameArea) {
+                prevFrameArea = area;
                 if (area == frameArea)
                     break;
             }
         }
     }
-    data->pixelBufferSize = frameArea+prevFrameBufferSize;
+    data->pixelBufferSize = pxSize*(frameArea+prevFrameArea);
 }
 
 EasyGifReader::EasyGifReader(EasyGifReader &&orig) : data(orig.data) {
@@ -524,7 +525,7 @@ EasyGifReader::~EasyGifReader() {
     }
 }
 
-EasyGifReader & EasyGifReader::operator=(EasyGifReader &&orig) {
+EasyGifReader &EasyGifReader::operator=(EasyGifReader &&orig) {
     if (this != &orig) {
         if (data) {
             DGifCloseFile(data->gif, nullptr);
@@ -552,7 +553,7 @@ int EasyGifReader::repeatCount() const {
     return data->loopCount;
 }
 
-bool EasyGifReader::repeatInfinitely() const {
+bool EasyGifReader::repeatsInfinitely() const {
     return !data->loopCount;
 }
 

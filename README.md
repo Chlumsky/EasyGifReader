@@ -21,13 +21,13 @@ Using the `EasyGifReader` class is very straightforward and intuitive. The follo
 
 ```c++
 try {
-    EasyGifReader gifReader = EasyGifReader::openFile("animation.gif");
-    int frameCount = gifReader.frameCount();
-    int width = gifReader.width();
-    int height = gifReader.height();
-    bool loop = gifReader.repeatInfinitely();
-    for (const EasyGifReader::Frame &frame : gifReader) {
-        const std::uint32_t *framePixels = frame.pixels();
+    EasyGifReader gif = EasyGifReader::openFile("animation.gif");
+    int frameCount = gif.frameCount();
+    int width = gif.width();
+    int height = gif.height();
+    bool loop = gif.repeatsInfinitely();
+    for (const EasyGifReader::Frame &frame : gif) {
+        const EasyGifReader::PixelComponent *framePixels = frame.pixels();
         double frameDuration = frame.duration().seconds();
         // TODO display framePixels for frameDuration seconds
     }
